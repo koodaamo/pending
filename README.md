@@ -12,8 +12,8 @@ Example of use:
 >>> import asyncio
 >>> from pending import Pending
 >>> events = Pending()
->>> events.expect("second", 10)
->>> events.expect("first", 9)
+>>> events.schedule("second", 10)
+>>> events.schedule("first", 9)
 >>> async def main():
 ...    for i in len(events):
 ...       evt = await events

@@ -4,6 +4,7 @@ events and then await. Once the first one is returned, re-await to get the next,
 """
 
 import asyncio
+from typing import Tuple, Any
 from datetime import datetime, timedelta
 from collections.abc import Awaitable
 
@@ -14,49 +15,65 @@ class Pending(Awaitable):
     def __init__(self):
         "set up internal variables for managing expected events"
         self._scheduled = {}
-        self._next = None
+        # (event, (number of seconds from scheduling time, the calculated future timestamp))
+        self._next: Tuple[Any,Tuple[int, datetime]] | None = None
 
     def _update_next(self):
         "determine the next pending event that gets returned"
-        if self._scheduled:
-            self._next = min(self._scheduled.items(), key=lambda i:i[1])
-        else:
+        try:
+            self._next = min(self._scheduled.items(), key=lambda i:i[1][1])
+        except ValueError: # when empty
             self._next = None
 
-    def schedule(self, event, seconds_from_now):
-        "schedule an expected future event"
-        expected = datetime.now() + timedelta(seconds=seconds_from_now)
-        if event not in self._scheduled:
-            self._scheduled[event] = expected
+    def schedule(self, event:Any, seconds:int):
+        "schedule an expected future event for # of seconds from now"
+        expected = datetime.now() + timedelta(seconds=seconds)
+        try:
+            self._scheduled[event] = (seconds, expected)
+        except KeyError:
+            raise Exception("'%s' already scheduled", event)
         else:
-            raise KeyError("already anticipating eventsday scenario '%s'", event)
-        self._update_next()
+            self._update_next()
 
-    def cancel(self, event):
+    def cancel(self, event:Any):
         "cancel a given expected future event"
-        del self._scheduled[event]
-        self._update_next()
+        try:
+            del self._scheduled[event]
+        except KeyError:
+            raise Exception("no such event '%s' scheduled", event)
+        else:
+            self._update_next()
 
-    def postpone(self, event, delay_by_seconds):
-        "postpone expected future event by expecting it afresh after a given delay"
-        self._scheduled[event] = datetime.now() + timedelta(seconds=delay_by_seconds)
-        self._update_next()
+    def reschedule(self, event):
+        "convenience to reschedule expected event forward in time the same # of seconds"
+        try:
+            seconds = self._scheduled[event][0]
+        except KeyError:
+            raise Exception("no such event '%s' scheduled", event)
+        else:
+            expected = datetime.now() + timedelta(seconds=seconds)
+            self._scheduled[event] = (seconds, expected)
+            self._update_next()
 
     def __len__(self):
         "return the number of expected events that are pending"
         return len(self._scheduled)
+
+    def __getitem__(self, event):
+        return self._scheduled[event]
 
     def __await__(self):
         "make this awaitable"
         return self
 
     def __next__(self):
-        "this is returned as the itemake this an iterator"
-        event, expected = self._next
-        if datetime.now() > expected:
-            del self._scheduled[event]
-            self._update_next()
-            raise StopIteration(event)
+        "make this an iterator"
+        if self._next:
+            event, (_, expected) = self._next
+            if datetime.now() > expected:
+                del self._scheduled[event]
+                self._update_next()
+                raise StopIteration(event)
         return
 
     async def wait(self):
